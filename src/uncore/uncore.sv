@@ -137,14 +137,7 @@ module uncore import cvw::*;  #(parameter cvw_t P)(
     assign SExtInt = 1'b0;
   end
 
-  if (P.GPIO_SUPPORTED == 1) begin : gpio
-    gpio_apb #(P) gpio(
-      .PCLK, .PRESETn, .PSEL(PSEL[0]), .PADDR(PADDR[7:0]), .PWDATA, .PSTRB, .PWRITE, .PENABLE,
-      .PRDATA(PRDATA[0]), .PREADY(PREADY[0]),
-      .iof0(), .iof1(), .GPIOIN, .GPIOOUT, .GPIOEN, .GPIOIntr);
-  end else begin : gpio
-    assign GPIOOUT = '0; assign GPIOEN = '0; assign GPIOIntr = 1'b0;
-  end
+  assign GPIOOUT = '0; assign GPIOEN = '0; assign GPIOIntr = 1'b0;
 
   if (P.UART_SUPPORTED == 1) begin : uartgen // Hack to work around Verilator bug https://github.com/verilator/verilator/issues/4769
     uart_apb #(P) uart(
@@ -157,23 +150,9 @@ module uncore import cvw::*;  #(parameter cvw_t P)(
     assign UARTSout = 1'b0; assign UARTIntr = 1'b0;
   end
 
-  if (P.SPI_SUPPORTED == 1) begin : spi
-    spi_apb  #(P) spi (
-      .PCLK, .PRESETn, .PSEL(PSEL[4]), .PADDR(PADDR[7:0]), .PWDATA, .PSTRB, .PWRITE, .PENABLE,
-      .PREADY(PREADY[4]), .PRDATA(PRDATA[4]),
-      .SPIOut, .SPIIn, .SPICS, .SPICLK, .SPIIntr);
-  end else begin : spi
-    assign SPIOut = 1'b0; assign SPICS = '0; assign SPIIntr = 1'b0; assign SPICLK = 1'b0;
-  end
+  assign SPIOut = 1'b0; assign SPICS = '0; assign SPIIntr = 1'b0; assign SPICLK = 1'b0;
 
-  if (P.SDC_SUPPORTED == 1) begin : sdc
-    spi_apb #(P) sdc(
-      .PCLK, .PRESETn, .PSEL(PSEL[5]), .PADDR(PADDR[7:0]), .PWDATA, .PSTRB, .PWRITE, .PENABLE,
-      .PREADY(PREADY[5]), .PRDATA(PRDATA[5]),
-      .SPIOut(SDCCmd), .SPIIn(SDCIn), .SPICS(SDCCS), .SPICLK(SDCCLK), .SPIIntr(SDCIntr));
-  end else begin : sdc
-    assign SDCCmd = '0; assign SDCCS = 4'b0; assign SDCIntr = 1'b0; assign SDCCLK = 1'b0;
-  end
+  assign SDCCmd = '0; assign SDCCS = 4'b0; assign SDCIntr = 1'b0; assign SDCCLK = 1'b0;
 
 
   // AHB Read Multiplexer
