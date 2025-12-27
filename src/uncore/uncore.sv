@@ -121,7 +121,7 @@ module uncore import cvw::*;  #(parameter cvw_t P)(
   end else assign {HREADBootRom, HRESPBootRom, HREADYBootRom} = '0;
 
   // memory-mapped I/O peripherals
-  if (P.CLINT_SUPPORTED == 1) begin : clint
+  if (P.CLINT_SUPPORTED == 1) begin : clintgen
     clint_apb #(P) clint(.PCLK, .PRESETn, .PSEL(PSEL[1]), .PADDR(PADDR[15:0]), .PWDATA, .PSTRB, .PWRITE, .PENABLE,
       .PRDATA(PRDATA[1]), .PREADY(PREADY[1]), .MTIME(MTIME_CLINT), .MTimerInt, .MSwInt);
   end else begin : clint

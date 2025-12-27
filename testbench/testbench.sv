@@ -686,6 +686,20 @@ module testbench;
   end
   */
 
+  integer        j;
+  always_ff @(posedge clk) begin
+    if (~dut.uncoregen.uncore.clintgen.clint.PRESETn) begin
+      dut.uncoregen.uncore.clintgen.clint.MTIME <= '0;
+    end else if (dut.uncoregen.uncore.clintgen.clint.memwrite & dut.uncoregen.uncore.clintgen.clint.entry == 16'hBFF8) begin
+      // MTIME Counter.  Eventually change this to run off separate clock.  Synchronization then needed
+      for(j=0;j<P.XLEN/8;j++)
+        if(dut.uncoregen.uncore.clintgen.clint.PSTRB[j])
+          dut.uncoregen.uncore.clintgen.clint.MTIME[j*8 +: 8] <= dut.uncoregen.uncore.clintgen.clint.PWDATA[j*8 +: 8];
+    end else if (dut.core.InstrValidM && !testbench.dut.core.StallW) begin
+      dut.uncoregen.uncore.clintgen.clint.MTIME <= dut.uncoregen.uncore.clintgen.clint.MTIME + 1;
+    end
+  end
+
   ////////////////////////////////////////////////////////////////////////////////
   // Support logic
   ////////////////////////////////////////////////////////////////////////////////

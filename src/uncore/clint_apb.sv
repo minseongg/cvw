@@ -92,15 +92,15 @@ module clint_apb import cvw::*;  #(parameter cvw_t P) (
 // eventually replace MTIME logic below with timereg
 //    timereg tr(PCLK, PRESETn, TIMECLK, memwrite & (entry==16'hBFF8), 1'b0, PWDATA, MTIME, done);
 
-    always_ff @(posedge PCLK)
-      if (~PRESETn) begin
-        MTIME <= '0;
-      end else if (memwrite & entry == 16'hBFF8) begin
-        // MTIME Counter.  Eventually change this to run off separate clock.  Synchronization then needed
-        for(j=0;j<P.XLEN/8;j++)
-          if(PSTRB[j])
-            MTIME[j*8 +: 8] <= PWDATA[j*8 +: 8];
-      end else MTIME <= MTIME + 1;
+    // always_ff @(posedge PCLK)
+    //   if (~PRESETn) begin
+    //     MTIME <= '0;
+    //   end else if (memwrite & entry == 16'hBFF8) begin
+    //     // MTIME Counter.  Eventually change this to run off separate clock.  Synchronization then needed
+    //     for(j=0;j<P.XLEN/8;j++)
+    //       if(PSTRB[j])
+    //         MTIME[j*8 +: 8] <= PWDATA[j*8 +: 8];
+    //   end else MTIME <= MTIME + 1;
   end else begin:clint // 32-bit
     always_ff @(posedge PCLK) begin
       case(entry)
