@@ -59,7 +59,6 @@ module uart_apb import cvw::*; #(parameter cvw_t P) (
   if (P.XLEN == 64) assign PRDATA = {Dout, Dout, Dout, Dout, Dout, Dout, Dout, Dout};
   else              assign PRDATA = {Dout, Dout, Dout, Dout};
 
-  logic BAUDOUTb;  // loop tx clock BAUDOUTb back to rx clock RCLK
   uartPC16550D #(P.UART_PRESCALE) uartPC(
     // Processor Interface
     .PCLK, .PRESETn,
@@ -67,8 +66,6 @@ module uart_apb import cvw::*; #(parameter cvw_t P) (
     .Dout,
     .MEMRb, .MEMWb,
     .INTR, .TXRDYb, .RXRDYb,
-    // Clocks
-    .BAUDOUTb, .RCLK(BAUDOUTb),
     // E1A Driver
     .SIN, .DSRb, .DCDb, .CTSb, .RIb,
     .SOUT, .RTSb, .DTRb, .OUT1b, .OUT2b
