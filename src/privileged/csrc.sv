@@ -94,38 +94,7 @@ module csrc  import cvw::*;  #(parameter cvw_t P) (
   assign CounterEvent[0]    = 1'b1;                                                      // MCYCLE always increments
   assign CounterEvent[1]    = 1'b0;                                                      // Counter 1 doesn't exist
   assign CounterEvent[2]    = InstrValidNotFlushedM;                                     // MINSTRET instructions retired
-  if (P.ZIHPM_SUPPORTED) begin: cevent                                                   // User-defined counters
-    // Ideally all events would be counted in the M stage, but the pipelining is costly. The counters may
-    // count an event in a previous pipeline stage.
-    assign CounterEvent[3]  = IClassM[0] & InstrValidNotFlushedM;                        // branch instruction
-    assign CounterEvent[4]  = IClassM[1] & ~IClassM[2] & InstrValidNotFlushedM;          // jump and not return instructions
-    assign CounterEvent[5]  = IClassM[2] & InstrValidNotFlushedM;                        // return instructions
-    assign CounterEvent[6]  = BPWrongM & InstrValidNotFlushedM;                          // branch predictor wrong
-    assign CounterEvent[7]  = BPDirWrongM & InstrValidNotFlushedM;                       // Branch predictor wrong direction
-    assign CounterEvent[8]  = BTAWrongM & InstrValidNotFlushedM;                         // branch predictor wrong target
-    assign CounterEvent[9]  = RASPredPCWrongM & InstrValidNotFlushedM;                   // return address stack wrong address
-    assign CounterEvent[10] = IClassWrongM & InstrValidNotFlushedM;                      // instruction class predictor wrong
-    assign CounterEvent[11] = LoadStallM;                                                // Load Stalls. don't want to suppress on flush as this only happens if flushed.
-    assign CounterEvent[12] = StoreStallM;                                               // Store Stall
-    assign CounterEvent[13] = DCacheAccess;                                              // data cache access
-    assign CounterEvent[14] = DCacheMiss;                                                // data cache miss. Miss asserted 1 cycle at start of cache miss
-    assign CounterEvent[15] = DCacheStallM;                                              // D$ miss cycles
-    assign CounterEvent[16] = ICacheAccess;                                              // instruction cache access
-    assign CounterEvent[17] = ICacheMiss;                                                // instruction cache miss. Miss asserted 1 cycle at start of cache miss
-    assign CounterEvent[18] = ICacheStallF;                                              // I$ miss cycles
-    assign CounterEvent[19] = CSRWriteM & InstrValidNotFlushedM;                         // CSR writes
-    assign CounterEvent[20] = InvalidateICacheM & InstrValidNotFlushedM;                 // fence.i
-    assign CounterEvent[21] = sfencevmaM & InstrValidNotFlushedM;                        // sfence.vma
-    assign CounterEvent[22] = InterruptM;                                                // interrupt, InstrValidNotFlushedM will be low
-    assign CounterEvent[23] = ExceptionM;                                                // exceptions, InstrValidNotFlushedM will be low
-    // coverage off
-    // DivBusyE will never be asserted high because the RV64GC configuration uses the FPU to do integer division
-    assign CounterEvent[24] = DivBusyE | FDivBusyE;                                      // division cycles
-    // coverage on
-    assign CounterEvent[P.COUNTERS-1:25] = '0; // eventually give these sources, including FP instructions, I$/D$ misses, branches and mispredictions
-  end else begin: cevent
-    assign CounterEvent[P.COUNTERS-1:3] = '0;
-  end
+  assign CounterEvent[P.COUNTERS-1:3] = '0;
 
   // Counter update and write logic
   for (i = 0; $unsigned(i) < P.COUNTERS; i = i+1) begin:cntr
