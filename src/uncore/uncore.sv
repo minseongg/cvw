@@ -145,8 +145,7 @@ module uncore import cvw::*;  #(parameter cvw_t P)(
       .PRDATA(PRDATA[3]), .PREADY(PREADY[3]),
       .SIN(UARTSin), .DSRb(1'b1), .DCDb(1'b1), .CTSb(1'b0), .RIb(1'b1), // from E1A driver from RS232 interface
       .SOUT(UARTSout), .RTSb(), .DTRb(),                                // to E1A driver to RS232 interface
-      .OUT1b(), .OUT2b(), .INTR(), .TXRDYb(), .RXRDYb());       // to CPU
-    assign UARTIntr = 1'b0;
+      .OUT1b(), .OUT2b(), .INTR(UARTIntr), .TXRDYb(), .RXRDYb());       // to CPU
   end else begin : uart
     assign UARTSout = 1'b0; assign UARTIntr = 1'b0;
   end

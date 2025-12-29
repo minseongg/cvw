@@ -676,14 +676,14 @@ module testbench;
     assign RVVIStall = '0;
   end
 
-  // Print key info  each cycle for debugging
-  always @(posedge clk) begin
-    #2;
-    if (dut.core.InstrValidM && !testbench.dut.core.StallW) begin
-      $display("PCM: %x  InstrM: %x (%5s) WriteDataM: %x  IEUResultM: %x",
-         dut.core.PCM, dut.core.InstrM, InstrMName, dut.core.WriteDataM, dut.core.ieu.dp.IEUResultM);
-    end
-  end
+  // // Print key info  each cycle for debugging
+  // always @(posedge clk) begin
+  //   #2;
+  //   if (dut.core.InstrValidM && !testbench.dut.core.StallM) begin
+  //     $display("PCM: %x  InstrM: %x (%5s) WriteDataM: %x  IEUResultM: %x",
+  //        dut.core.PCM, dut.core.InstrM, InstrMName, dut.core.WriteDataM, dut.core.ieu.dp.IEUResultM);
+  //   end
+  // end
 
   integer        j;
   always_ff @(posedge clk) begin
