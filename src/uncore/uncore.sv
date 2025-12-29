@@ -131,9 +131,7 @@ module uncore import cvw::*;  #(parameter cvw_t P)(
 
   if (P.PLIC_SUPPORTED == 1) begin : plic
     plic_apb #(P) plic(.PCLK, .PRESETn, .PSEL(PSEL[2]), .PADDR(PADDR[27:0]), .PWDATA, .PSTRB, .PWRITE, .PENABLE,
-      .PRDATA(PRDATA[2]), .PREADY(PREADY[2]), .UARTIntr(1'b0), .GPIOIntr(1'b0), .SDCIntr(1'b0), .SPIIntr(1'b0), .MExtInt(), .SExtInt());
-    assign MExtInt = 1'b0;
-    assign SExtInt = 1'b0;
+      .PRDATA(PRDATA[2]), .PREADY(PREADY[2]), .UARTIntr, .GPIOIntr(1'b0), .SDCIntr(1'b0), .SPIIntr(1'b0), .MExtInt, .SExtInt);
   end else begin : plic
     assign MExtInt = 1'b0;
     assign SExtInt = 1'b0;
