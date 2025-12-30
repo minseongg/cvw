@@ -63,38 +63,22 @@ module uartPC16550D #(parameter UART_PRESCALE) (
   typedef enum logic [1:0] {UART_IDLE, UART_ACTIVE, UART_DONE, UART_BREAK} statetype;
 
   // Registers
-  logic [10:0] RBR;
   logic [7:0]  FCR, LCR, LSR, SCR, DLL, DLM;
   logic [3:0]  IER, MSR;
   logic [4:0]  MCR;
 
-  // Synchronized and delayed UART signals
-  logic        SINd, DSRbd, DCDbd, CTSbd, RIbd;
-  logic        SINsync, DSRbsync, DCDbsync, CTSbsync, RIbsync;
-  logic        DSRb2, DCDb2, CTSb2, RIb2;
-
   // Control signals
-  logic        loop; // loopback mode
   logic        DLAB; // Divisor Latch Access Bit (LCR bit 7)
 
   // Baud and rx/tx timing
   logic                         baudpulse, txbaudpulse; // high one system clk cycle each baud/16 period
   logic [16+UART_PRESCALE-1:0]  baudcount;
-  logic [3:0]                   rxoversampledcnt, txoversampledcnt;  // count oversampled-by-16
-  logic [3:0]                   rxbitsreceived, txbitssent;
-  statetype rxstate, txstate;
+  logic [3:0]                   txoversampledcnt;  // count oversampled-by-16
+  logic [3:0]                   txbitssent;
+  statetype txstate;
 
   // shift registers and FIFOs
-  logic [9:0]                   rxshiftreg;
-  logic [10:0]                  rxfifo[15:0];
-  logic [3:0]                   rxfifohead, rxfifotail, rxfifotriggerlevel;
-  logic [3:0]                   rxbitsexpected, txbitsexpected;
-
-  // receive data
-  logic [10:0]                  RXBR;
-  logic                         rxdataready;
-  logic [8:0]                   rxdata9;
-  logic [7:0]                   rxdata;
+  logic [3:0]                   txbitsexpected;
 
   // transmit data
   logic [7:0]                   TXHR, nexttxdata;
@@ -111,16 +95,6 @@ module uartPC16550D #(parameter UART_PRESCALE) (
   logic [2:0]                   intrID;
 
   logic                         baudpulseComb;
-
-  ///////////////////////////////////////////
-  // Input synchronization: 2-stage synchronizer
-  ///////////////////////////////////////////
-
-  always_ff @(posedge PCLK) begin
-    {SINd, DSRbd, DCDbd, CTSbd, RIbd} <= {SIN, DSRb, DCDb, CTSb, RIb};
-    {DSRbsync, DCDbsync, CTSbsync, RIbsync} <= loop ? {~MCR[0], ~MCR[3], ~MCR[1], ~MCR[2]} : {DSRbd, DCDbd, CTSbd, RIbd}; // synchronized signals, handle loopback testing
-    {DSRb2, DCDb2, CTSb2, RIb2} <= {DSRbsync, DCDbsync, CTSbsync, RIbsync}; // for detecting state changes
-  end
 
   ///////////////////////////////////////////
   // Register interface (Table 1, note some are read only and some write only)
@@ -156,7 +130,7 @@ module uartPC16550D #(parameter UART_PRESCALE) (
       if (~MEMWb & (A == UART_LSR))
         LSR[6:1] <= Din[6:1]; // recommended only for test, see 8.6.3
       else begin
-        LSR[0]   <= rxdataready; // Data ready
+        LSR[0]   <= 1'b0; // Data ready
         LSR[5]   <= THRE; // THRE
         LSR[6]   <= ~txsrfull & THRE; //  TEMT
       end
@@ -166,24 +140,18 @@ module uartPC16550D #(parameter UART_PRESCALE) (
         MSR <= Din[3:0];
       else if (~MEMRb & (A == UART_MSR))
         MSR <= 4'b0; // Reading MSR clears the flags in MSR bits 3:0
-      else begin
-        MSR[0] <= MSR[0] | CTSb2 ^ CTSbsync; // Delta Clear to Send
-        MSR[1] <= MSR[1] | DSRb2 ^ DSRbsync; // Delta Data Set Ready
-        MSR[2] <= MSR[2] | (~RIb2 & RIbsync); // Trailing Edge of Ring Indicator
-        MSR[3] <= MSR[3] | DCDb2 ^ DCDbsync; // Delta Data Carrier Detect
-      end
     end
 
   always_comb
     if (~MEMRb)
       case (A)
-        UART_DLL_RBR: if (DLAB) Dout = DLL; else Dout = RBR[7:0];
+        UART_DLL_RBR: if (DLAB) Dout = DLL; else Dout = 8'b0;
         UART_DLM_IER: if (DLAB) Dout = DLM; else Dout = {4'b0, IER[3:0]};
-        UART_IIR: Dout = {2'b00, 2'b00, intrID[2:0], ~intrpending}; // Read only Interrupt Ident Register
+        UART_IIR: Dout = {4'b0000, intrID[2:0], ~intrpending}; // Read only Interrupt Ident Register
         UART_LCR: Dout = LCR;
         UART_MCR: Dout = {3'b000, MCR};
         UART_LSR: Dout = LSR;
-        UART_MSR: Dout = {~DCDbsync, ~RIbsync, ~DSRbsync, ~CTSbsync, MSR[3:0]};
+        UART_MSR: Dout = {4'b0001, MSR[3:0]};
         UART_SCR: Dout = SCR;
       endcase
     else Dout = 8'b0;
@@ -217,44 +185,6 @@ module uartPC16550D #(parameter UART_PRESCALE) (
   assign baudpulseComb = (baudcount == {DLM, DLL, {(UART_PRESCALE){1'b0}}});
 
   assign txbaudpulse = baudpulse;
-
-  ///////////////////////////////////////////
-  // receive shift register, buffer register, FIFO
-  ///////////////////////////////////////////
-
-  always_ff @(posedge PCLK)
-    if (~PRESETn) rxshiftreg <= 10'b0000000001; // initialize so that there is a valid stop bit
-  always_comb
-    case(LCR[1:0]) // check how many bits used.  Grab all bits including possible parity
-      2'b00: rxdata9 = {3'b0, rxshiftreg[1], rxshiftreg[2], rxshiftreg[3], rxshiftreg[4], rxshiftreg[5], rxshiftreg[6]}; // 5-bit character
-      2'b01: rxdata9 = {2'b0, rxshiftreg[1], rxshiftreg[2], rxshiftreg[3], rxshiftreg[4], rxshiftreg[5], rxshiftreg[6], rxshiftreg[7]}; // 6-bit
-      2'b10: rxdata9 = {1'b0, rxshiftreg[1], rxshiftreg[2], rxshiftreg[3], rxshiftreg[4], rxshiftreg[5], rxshiftreg[6], rxshiftreg[7], rxshiftreg[8]}; // 7-bit
-      2'b11: rxdata9 = {      rxshiftreg[1], rxshiftreg[2], rxshiftreg[3], rxshiftreg[4], rxshiftreg[5], rxshiftreg[6], rxshiftreg[7], rxshiftreg[8], rxshiftreg[9]}; // 8-bit
-    endcase
-  assign rxdata = LCR[3] ? rxdata9[7:0] : rxdata9[8:1]; // discard parity bit
-
-  // receive FIFO and register
-  always_ff @(posedge PCLK)
-    if (~PRESETn) begin
-      rxfifohead <= '0; rxfifotail <= '0; rxdataready <= 1'b0; RXBR <= '0;
-    end else begin
-      if (~MEMWb & (A == 3'b010) & Din[1]) begin
-        rxfifohead <= '0; rxfifotail <= '0; rxdataready <= 1'b0;
-      end else if (rxstate == UART_DONE) begin
-        RXBR <= {3'b0, rxdata}; // load recevive buffer register
-        rxdataready <= 1'b1;
-      end else if (~MEMRb & A == 3'b000 & ~DLAB) begin // reading RBR updates ready / pops fifo
-        rxdataready <= 1'b0;
-        RXBR <= {1'b0, RXBR[9:0]}; // Ben 31 March 2022: I added this so that rxoverrunerr permanently goes away upon reading RBR (when not in FIFO mode)
-      end else if (~MEMWb & A == 3'b010)  // writes to FIFO Control Register
-        if (Din[1] | ~Din[0]) begin // rx FIFO reset or FIFO disable clears FIFO contents
-          rxfifohead <= '0; rxfifotail <= '0;
-        end
-    end
-
-  always_comb begin
-    RBR    = RXBR;
-  end
 
   ///////////////////////////////////////////
   // transmit timing and control
@@ -355,12 +285,6 @@ module uartPC16550D #(parameter UART_PRESCALE) (
   ///////////////////////////////////////////
   // modem control logic
   ///////////////////////////////////////////
-
-  assign loop  = MCR[4];
-  assign DTRb  = ~MCR[0] | loop; // disable modem signals in loopback mode
-  assign RTSb  = ~MCR[1] | loop;
-  assign OUT1b = ~MCR[2] | loop;
-  assign OUT2b = ~MCR[3] | loop;
 
   assign DLAB = LCR[7];
   assign evenparitysel  = LCR[4];
