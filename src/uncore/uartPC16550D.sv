@@ -72,7 +72,6 @@ module uartPC16550D #(parameter UART_PRESCALE) (
   logic        SINd, DSRbd, DCDbd, CTSbd, RIbd;
   logic        SINsync, DSRbsync, DCDbsync, CTSbsync, RIbsync;
   logic        DSRb2, DCDb2, CTSb2, RIb2;
-  logic        SOUTbit;
 
   // Control signals
   logic        loop; // loopback mode
@@ -88,21 +87,14 @@ module uartPC16550D #(parameter UART_PRESCALE) (
   // shift registers and FIFOs
   logic [9:0]                   rxshiftreg;
   logic [10:0]                  rxfifo[15:0];
-  logic [4:0]                   rxfifotailunwrapped;
   logic [3:0]                   rxfifohead, rxfifotail, rxfifotriggerlevel;
   logic [3:0]                   rxbitsexpected, txbitsexpected;
 
   // receive data
   logic [10:0]                  RXBR;
-  logic [9:0]                   rxtimeoutcnt;
-  logic                         rxcentered;
-  logic                         rxparity, rxparitybit, rxstopbit;
-  logic                         rxparityerr, rxoverrunerr, rxframingerr, rxbreak, rxfifohaserr;
   logic                         rxdataready;
   logic [8:0]                   rxdata9;
   logic [7:0]                   rxdata;
-  logic [15:0]                  RXerrbit, rxfullbit;
-  logic [31:0]                  rxfullbitunwrapped;
 
   // transmit data
   logic [7:0]                   TXHR, nexttxdata;
@@ -111,16 +103,14 @@ module uartPC16550D #(parameter UART_PRESCALE) (
   logic                         txparity;
 
   // control signals
-  logic                         fifodmamodesel, evenparitysel;
+  logic                         evenparitysel;
 
   // interrupts
-  logic                         RXerr, RXerrIP, squashRXerrIP, prevSquashRXerrIP, setSquashRXerrIP, resetSquashRXerrIP;
   logic                         THRE, THRE_IP, squashTHRE_IP, prevSquashTHRE_IP, setSquashTHRE_IP, resetSquashTHRE_IP;
-  logic                         rxdataavailintr, modemstatusintr, intrpending;
+  logic                         intrpending;
   logic [2:0]                   intrID;
 
   logic                         baudpulseComb;
-  logic                         HeadPointerLastMove;
 
   ///////////////////////////////////////////
   // Input synchronization: 2-stage synchronizer
@@ -128,8 +118,7 @@ module uartPC16550D #(parameter UART_PRESCALE) (
 
   always_ff @(posedge PCLK) begin
     {SINd, DSRbd, DCDbd, CTSbd, RIbd} <= {SIN, DSRb, DCDb, CTSb, RIb};
-    {SINsync, DSRbsync, DCDbsync, CTSbsync, RIbsync} <= loop ? {SOUTbit, ~MCR[0], ~MCR[3], ~MCR[1], ~MCR[2]} :
-                            {SINd, DSRbd, DCDbd, CTSbd, RIbd}; // synchronized signals, handle loopback testing
+    {DSRbsync, DCDbsync, CTSbsync, RIbsync} <= loop ? {~MCR[0], ~MCR[3], ~MCR[1], ~MCR[2]} : {DSRbd, DCDbd, CTSbd, RIbd}; // synchronized signals, handle loopback testing
     {DSRb2, DCDb2, CTSb2, RIb2} <= {DSRbsync, DCDbsync, CTSbsync, RIbsync}; // for detecting state changes
   end
 
@@ -168,13 +157,8 @@ module uartPC16550D #(parameter UART_PRESCALE) (
         LSR[6:1] <= Din[6:1]; // recommended only for test, see 8.6.3
       else begin
         LSR[0]   <= rxdataready; // Data ready
-        LSR[1]   <= (LSR[1] | RXBR[10]) & ~squashRXerrIP; // overrun error
-        LSR[2]   <= (LSR[2] | RXBR[9])  & ~squashRXerrIP; // parity error
-        LSR[3]   <= (LSR[3] | RXBR[8])  & ~squashRXerrIP; // framing error
-        LSR[4]   <= (LSR[4] | rxbreak)  & ~squashRXerrIP; // break indicator
         LSR[5]   <= THRE; // THRE
         LSR[6]   <= ~txsrfull & THRE; //  TEMT
-        if (rxfifohaserr) LSR[7] <= 1'b1; // any bits in FIFO have error
       end
 
       // Modem Status Register (8.6.8)
@@ -240,9 +224,6 @@ module uartPC16550D #(parameter UART_PRESCALE) (
 
   always_ff @(posedge PCLK)
     if (~PRESETn) rxshiftreg <= 10'b0000000001; // initialize so that there is a valid stop bit
-    else if (rxcentered) rxshiftreg <= {rxshiftreg[8:0], SINsync}; // capture bit
-  assign rxparitybit = rxshiftreg[1]; // parity, if it exists, in bit 1 when all done
-  assign rxstopbit = rxshiftreg[0];
   always_comb
     case(LCR[1:0]) // check how many bits used.  Grab all bits including possible parity
       2'b00: rxdata9 = {3'b0, rxshiftreg[1], rxshiftreg[2], rxshiftreg[3], rxshiftreg[4], rxshiftreg[5], rxshiftreg[6]}; // 5-bit character
@@ -252,13 +233,6 @@ module uartPC16550D #(parameter UART_PRESCALE) (
     endcase
   assign rxdata = LCR[3] ? rxdata9[7:0] : rxdata9[8:1]; // discard parity bit
 
-  // ERROR CONDITIONS
-  assign rxparity     = ^rxdata;
-  assign rxparityerr  = (rxparity ^ rxparitybit ^ ~evenparitysel) & LCR[3]; // Check even/odd parity
-  assign rxoverrunerr = rxdataready; // overrun if FIFO or receive buffer register full
-  assign rxframingerr = ~rxstopbit; // framing error if no stop bit
-  assign rxbreak      = rxframingerr & (rxdata9 == 9'b0); // break when 0 for start + data + parity + stop time
-
   // receive FIFO and register
   always_ff @(posedge PCLK)
     if (~PRESETn) begin
@@ -267,10 +241,7 @@ module uartPC16550D #(parameter UART_PRESCALE) (
       if (~MEMWb & (A == 3'b010) & Din[1]) begin
         rxfifohead <= '0; rxfifotail <= '0; rxdataready <= 1'b0;
       end else if (rxstate == UART_DONE) begin
-        RXBR <= {rxoverrunerr, rxparityerr, rxframingerr, rxdata}; // load recevive buffer register
-//        if (rxoverrunerr) $warning("UART RX Overrun Err\n");
-//        if (rxparityerr)  $warning("UART RX Parity Err\n");
-//        if (rxframingerr) $warning("UART RX Framing Err\n");
+        RXBR <= {3'b0, rxdata}; // load recevive buffer register
         rxdataready <= 1'b1;
       end else if (~MEMRb & A == 3'b000 & ~DLAB) begin // reading RBR updates ready / pops fifo
         rxdataready <= 1'b0;
@@ -280,25 +251,6 @@ module uartPC16550D #(parameter UART_PRESCALE) (
           rxfifohead <= '0; rxfifotail <= '0;
         end
     end
-
-  // detect any errors in rx fifo
-  // although rxfullbit looks like a combinational loop, in one bit rxfifotail == i and breaks the loop
-  // tail is normally higher than head, but might wrap around.  unwrapped variable adds 16 to eliminate wrapping
-  assign rxfifotailunwrapped = rxfifotail < rxfifohead ? {1'b1, rxfifotail} : {1'b0, rxfifotail};
-  genvar i;
-  for (i=0; i<32; i++) begin:rxfull
-    if (i == 0) assign rxfullbitunwrapped[i] = (rxfifohead==0) & (rxfifotail != 0);
-    else        assign rxfullbitunwrapped[i] = ({1'b0,rxfifohead}==i | rxfullbitunwrapped[i-1]) & (rxfifotailunwrapped != i);
-  end
-  for (i=0; i<16; i++) begin:rx
-    assign RXerrbit[i]  = |rxfifo[i][10:8]; // are any of the error conditions set?
-    assign rxfullbit[i] = rxfullbitunwrapped[i] | rxfullbitunwrapped[i+16];
-  /*      if (i > 0)
-      assign rxfullbit[i] = ((rxfifohead==i) | rxfullbit[i-1]) & (rxfifotail != i);
-      else
-      assign rxfullbit[0] = ((rxfifohead==i) | rxfullbit[15]) & (rxfifotail != i);*/
-  end
-  assign rxfifohaserr   = |(RXerrbit & rxfullbit);
 
   always_comb begin
     RBR    = RXBR;
@@ -375,36 +327,12 @@ module uartPC16550D #(parameter UART_PRESCALE) (
       else if (txstate == UART_ACTIVE & txnextbit) txsr <= {txsr[10:0], 1'b1}; // shift txhr
     end
 
-  always_ff @(posedge PCLK) begin
-  // special condition to check if the fifo is empty or full.  Because the head
-  // pointer indicates where the next write goes and not the location of the
-  // current head, the head and tail pointer being equal imply two different
-  // things.  First it could mean the fifo is empty and second it could mean
-  // the fifo is full.  To differentiate we need to know which pointer moved
-  // to cause them to be equal.  If the head pointer moved then it is full.
-  // If the tail pointer moved then it is empty.  it resets to empty so
-  // if reset with the tail pointer indicating the last update.
-  if(~PRESETn)
-    HeadPointerLastMove <= 1'b0;
-  end
-
-  always_comb
-    TXRDYb  = ~THRE;
-
-  // Transmitter pin
-  assign SOUTbit = txsr[11]; // transmit most significant bit
-  assign SOUT    = loop ? 1 : (LCR[6] ? '0 : SOUTbit); // tied to 1 during loopback or 0 during break
-
   ///////////////////////////////////////////
   // interrupts
   ///////////////////////////////////////////
 
-  assign RXerr = |LSR[4:1]; // LS interrupt if any of the flags are true
-  assign RXerrIP = RXerr & ~squashRXerrIP; // intr squashed upon reading LSR
-  assign rxdataavailintr = rxdataready;
   assign THRE = ~txhrfull;
   assign THRE_IP = THRE & ~squashTHRE_IP; // THRE_IP squashed upon reading IIR
-  assign modemstatusintr = |MSR[3:0]; // set interrupt when modem pins change
 
   // IIR: interrupt priority (Table 5)
   // set intrID based on highest priority pending interrupt source; otherwise, no interrupt is pending
@@ -436,7 +364,6 @@ module uartPC16550D #(parameter UART_PRESCALE) (
 
   assign DLAB = LCR[7];
   assign evenparitysel  = LCR[4];
-  assign fifodmamodesel = FCR[3];
 
 endmodule
 
